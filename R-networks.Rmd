@@ -1,0 +1,328 @@
+---
+title: "R-networks"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Redes com R   
+   
+Este documento é um tutorial para utilizar o pacote GGally no R para desenhar e manipular redes.      
+     
+### Dependências   
+     
+GGally provê a função ggnet para geração de gráficos de redes.     
+Suas dependências incluem:   
+  - sna       (pacote para redes sociais)    
+  - network   (pacote para redes)    
+  - ggplot2   (tidyverse)      
+  - scales    (interno a ggplot2)       
+E também os pacotes opcionais:       
+  - RColorBrewer - permite ggnet2 usar paletas ColorBrewer para colorir nós.      
+  - intergraph - permite ggnet2 processar objetos one-node criados com o pacote igraph       
+      
+```{r GGally, echo=FALSE}
+library(tidyverse)
+library(network)
+library(sna)
+library(GGally) 
+```
+      
+## Including Plots      
+      
+Uma forma simples de representar redes é utilizar dataframes com as colunas "from" e "to" (no caso de redes direcionadas). O df edge_list a seguir representa as conexões da rede (edges), enquanto o df node_list apenas os nós.     
+     
+O método **network** do pacote __network__ gera um objeto do tipo network a partir do df de conexões da rede.    
+    
+Para desenhar um rede pode-se usar a função básica do R **plot** ou o método **ggnet2** do pacote __GGally__.    
+                   
+```{r creating_network_net}
+edge_list <- tibble(from = c(1,2,2,3,4), to = c(2,3,4,2,1))
+node_list <- tibble(id = 1:4)
+net <- network(edge_list)
+```
+    
+Imprimendo com o método nativo R **plot**:    
+    
+```{r plotting_with_plot}
+plot(net)
+```
+    
+Imprimindo com **ggnet2** do pacote __GGally__:     
+    
+```{r plotting_with_ggnet2}
+ggnet2(net)
+```
+    
+## Manipulação de dados para montar um estrutura de redes     
+     
+Nesta sequência vamos mostrar como fazer manipulação dos dados para montar uma estrutura de redes.       
+     
+O arquivo "data/correspondence-data-1585.csv" traz uma lista das cartas recebidas dm 1585 por Daniel van der Meulen (fonte do arquivo em [github de Jesse Sadler(https://github.com/jessesadler/intro-to-r)]) indicando a cidade do remetente da carta e a cidade do destinatário.     
+Vamos importar o arquivo e através dele gerar um rede com a mesma estrutura acima.     
+     
+```{r cartas}
+cartas <-  read_csv("intro-to-r-master/data/correspondence-data-1585.csv")
+# Vamos montar 2 listas: das cidades origem e das cidades destino, e juntá-las numa única lista de cidades, por fim, vamos usar a função rowid_to_coloumn para gerar um índice para cada linha/cidade:
+sources <- cartas %>% distinct(source) %>% rename(label = source)
+destinations <- cartas %>% distinct(destination) %>% rename(label = destination)
+nodes <- full_join(sources, destinations, by = "label") %>% distinct(label)
+nodes <-  nodes %>% rowid_to_column("id")
+
+# Vamos agrupar por par de informação "origem x destino".
+# A função **ungroup** final é importante para eliminar a informação de agrupamento que fica no data frame final. De outra forma o **select** na sequência não geraria a informação desejada (experimente).
+per_route <- cartas %>% 
+              group_by(source, destination) %>% 
+              summarise(weight = n()) %>% 
+              ungroup()
+
+edges <- per_route %>% left_join(nodes, by = c("source" = "label")) %>% 
+  rename(from = id)
+edges <- edges %>% left_join(nodes, by = c("destination" = "label")) %>% 
+  rename(to = id)
+edges <-  select(edges, from, to, weight)
+
+# Por fim vamos criar a rede e gerar o gráfico
+routes_network <- network(edges, vertex.attr = nodes, matrix.type = "edgelist", ignore.eval = FALSE)
+routes_network
+plot(routes_network, vertex.cex = 3)
+ggnet2(routes_network)
+```
+      
+          
+# Explorando a função **ggnet2**     
+      
+Nos exemplos a seguir vamos explorar os recursos da função ggnet2 do pacote GGally.     
+      
+## Exemplo 1 - Grafo aleatório     
+     
+Vamos gerar uma rede aleatória:    
+    
+```{r rede_aleatoria, echo=FALSE}
+net = rgraph(10, mode = "graph", tprob = 0.5)
+net = network(net, directed = FALSE)
+network.vertex.names(net) = letters[1:10]
+ggnet2(net)
+```
+      
+## Cor e tamanho dos nós - atributos    
+    
+Podemos ajustar a cor e tamanho dos nós (nodes) e das conexões (edges):     
+    
+```{r cores_e_tamanhos, echo=FALSE}
+ggnet2(net, node.size = 6, node.color = "blue", edge.size = 1, edge.color = "gray")
+# os argumentos de nós começam com "node." e os de conexões com "edge.". 
+# os argumentos de nós podem ser abreviados:
+ggnet2(net, size = 6, color = "blue", edge.size = 1, edge.color = "gray")
+# é possível passar um vetor de cores desde que seja do mesmo tamanho do número de elementos da rede.
+ggnet2(net, size = 6, color = c("blue", "red", "yellow", "green", "gray","blue", "red", "yellow", "green", "gray"))
+ggnet2(net, size = 6, color = rep(c("blue", "red"), 5))
+```
+     
+## Posicionamento dos nós     
+     
+Na opção padrão, ggnet2 posiciona os nós utilizando o algoritmo "Fruchterman-Reigold forced-directed". Mas também suporta os demais algoritmos suportados por __sna__ (pesquise por ?gplot.layout):      
+    
+```{r posicionamento_nos, echo=FALSE}
+ggnet2(net, mode = "circle")
+ggnet2(net, mode = "kamadakawai")
+
+# Experimente com as opções abaixo
+# ggnet2(net, mode = "adj")
+# ggnet2(net, mode = "circrand")
+# ggnet2(net, mode = "eigen")       
+# ggnet2(net, mode = "fruchtermanreingold")
+# ggnet2(net, mode = "geodist")
+# ggnet2(net, mode = "hall")
+# ggnet2(net, mode = "mds")
+# ggnet2(net, mode = "random")
+# ggnet2(net, mode = "segeo")
+# ggnet2(net, mode = "seham")
+# ggnet2(net, mode = "spring")
+# ggnet2(net, mode = "springrepulse")
+```
+     
+E suporta a passagem de argumentos para o algoritmo através do parâmetro **layout.par**:      
+       
+```{r passagem_parametros_mode, echo=FALSE}
+ggnet2(net, mode = "fruchtermanreingold", layout.par = list(cell.jitter = 0.8))
+ggnet2(net, mode = "target", layout.par = list(niter = 100))
+```
+       
+       
+## Cor dos nós por agrupamento      
+     
+Vamos ver opções para atribuir cores por grupos de nós. Para isso precisaremos criar atributos para os nós através do operador **%v%**.   
+     
+### Operador %v%     
+     
+O operador **%v%** permite acrescentar atributos aos nós. No exemplo a seguir vamos acresentar um atributo chamado __phono__ cujos valores podem ser "vowel" ou "consonant".     
+       
+As cores padrões são em tons de cinza.      
+    
+```{r phono_parameter}
+# Classificando os nós por letras de 'a' até 'j', para as vogais o atributo **phono** será "vowel" e para as consoantes será "consonant".
+net %v% "phono" = ifelse(letters[1:10] %in% c('a', 'e', 'i'), "vowel", "consonant")
+ggnet2(net, color = "phono")
+```
+     
+### Três opções para parametrização de cores   
+    
+1. Criar um atributo para cores:    
+    
+```{r color_attribute}
+net %v% "color" = ifelse(net %v% "phono" == "vowel", "steelblue", "tomato")
+ggnet2(net, color = "color")
+```
+    
+2. Passar as cores através do atributo __palette__:   
+```{r atributte_palette}
+ggnet2(net, color = "phono", palette = c("vowel" = "steelblue", "consonant" = "tomato"))
+```
+    
+Ainda, é possível utilizar uma paleta de cores pré-existente, desde que haja cores suficientes para todos os grupos de nós:    
+    
+```{r color_attribute}
+ggnet2(net, color = "phono", palette = "Set2")
+```
+    
+3. Por fim é possível inserir diretamente a regra de cores no atributo:   
+    
+```{r color_attribute_logic}
+ggnet2(net, color = ifelse(net %v% "phono" == "vowel", "yellow", "red"))
+```
+    
+### Tamanho dos nós:    
+    
+Vimos anteriormente que o tamanho dos nós pode ser definido atragvés do atributo __size__. Vamos aqui mostrar como podemos, da mesma forma que fizemos com as cores, definir os tamanhos por grupos. Por padrão os tamanhos maiores ficam no centro.    
+    
+```{r size_by_phono_attribute}
+ggnet2(net, size = "phono")
+```
+     
+Ou ainda utilizando uma paleta de tamanhos (semelhante à paleta de cores):    
+    
+```{r paleta_de_tamanhos}
+ggnet2(net, size = "phono", size.palette = c("vowel" = 10, "consonant" = 1))
+```
+    
+## Legendas    
+    
+Os argumentos __alpha__, __color__, __size__ e __shape__ de ggnet2 produzem legendas do tipo __ggplot2__, cujos nomes serão dos atributos que eles correspondem. Porém, é possível mudar estes nomes com argumentos:    
+    
+```{r mudar_nome_das_legendas}
+ggnet2(net, alpha = "phono", alpha.legend = "Fonemas")
+# ggnet2(net, size = "phono", size.legend = "Centralidade")
+# ggnet2(net, color = "phono", color.legend = "Fonemas")
+# ggnet2(net, shape = "phono", shape.legend = "Fonemas")
+
+# Também é possível eliminar completamente as legendas:
+# ggnet2(net, color = "phono", size = "degree") 
+#       guides(color = FALSE, size = FALSE)
+```
+    
+Também é possível acrescentar legendas através de controladores (controllers) do tipo __discrete_scale__:    
+    
+```{r legendas_com_controladores}
+# control the colors of the nodes
+ggnet2(net, color = "phono") +
+  scale_color_brewer("", palette = "Set1",
+                     labels = c("consonant" = "C", "vowel" = "V"),
+                     guide = guide_legend(override.aes = list(size = 6)))
+
+# control the size of the nodes
+ggnet2(net, size = "degree") +
+  scale_size_discrete("", range = c(5, 10), breaks = seq(10, 2, -2))
+```
+    
+As legendas podem ser estilizadas modificando-se o tema (theme) do gráfico:    
+    
+```{r modificando_o_tema}
+ggnet2(net, color = "phono") +
+  scale_color_brewer("", palette = "Set1",
+                     labels = c("consonant" = "C", "vowel" = "V"),
+                     guide = guide_legend(override.aes = list(size = 6))) +
+  theme(panel.background = element_rect(color = "grey"))
+```
+   
+## Rótulos (Labels) para os nós     
+    
+Os rótulos são controlados através do atributo __label__. Os rótulos podem ser definidos pelo atributo vertex, por outro atributo, ou por um vetor de valores.
+```{r}
+ggnet2(net, label = TRUE)
+ggnet2(net, label = "phono")
+ggnet2(net, label = 1:10)
+# GGnet2 vai rotular apenas os nós cujos nomes forem iguais ao do vetor de rótulos fornecido:
+ggnet2(net, label = c('a', 'e', 'i'))
+```
+    
+O tamanho do rótulo é defino por padrão como como metade do tamanho do nó. Os atributos de rótulos que podem ser configurados são: __label.size__, __label.color__ e __label.alpha__:
+    
+```{r}
+ggnet2(net, size = 12, label=TRUE, color = "black", label.size = 5, label.color="white", label.alpha = 0.5)
+```
+    
+Os nomes dos atributos de __label__ podem ser vetores de valores ou o nome de atributos vertex:    
+    
+```{r}
+ggnet2(net, color = "grey15", size = 12, label = TRUE, label.color = "color") +
+  theme(panel.background = element_rect(fill = "grey15"))
+```
+    
+## Formas e Transparência
+    
+texto.    
+    
+```{r}
+```
+     
+     
+## título
+    
+texto.    
+    
+```{r}
+```
+     
+     
+<!-- n1 = data.frame(family = c(rep("fam.A",3), rep("fam.B",3), rep("fam.C",2)),member = c("a1", "a2", "a3", "b1", "b2","b3", "c1", "c2")) -->
+<!-- n2 = data.frame(family = c(rep("fam.A",3), rep("fam.B",3), rep("fam.D",2)),member = c("a1", "a4", "a5", "b4", "b5","b6", "d1", "d2")) -->
+<!-- n = rbind(n1, n2) -->
+<!-- net2 = network(n, directed = TRUE) -->
+<!-- x2 = data.frame(Type = network.vertex.names(net2)) -->
+<!-- x2 = factor(c("common", rep("Type-n1",6), rep("Type-n2",8), rep("fam", 4))) -->
+
+<!-- net2 %v% "color" = as.character(x2) -->
+<!-- y2 = RColorBrewer::brewer.pal(9, "Set1")[ c(3, 1, 9,6, 7) ] -->
+<!-- names(y2) = levels(x2) -->
+<!-- ggnet2(net2, color = "color", palette = y2, alpha = 0.75, size = 5, -->
+<!--        edge.alpha = 0.5, label = TRUE) -->
+
+<!-- ## Operador %v%  -->
+<!-- ## Cria um novo atributo para cada nó com o nome da string indicada e  -->
+<!-- ## a função indicada após a atribuição = -->
+<!-- net %v% "phono" = ifelse(letters[1:10] %in% c("a", "e", "i"), "vowel", "consonant") -->
+
+<!-- # o atributo pode ser passado para a função ggnet2 para indicar que  -->
+<!-- # os nós pertencem a um grupo. O nome do atributo do grupo deve ser -->
+<!-- # passado para o argumento color. As cores padrão são em tom de cinza. -->
+<!-- ggnet2(net, color = "phono") -->
+<!-- ### para colorir podemos usar 3 opções: -->
+<!-- # Opção 1: definir a cor em um atributo dos nós: -->
+<!-- net %v% "color" = ifelse(net %v% "phono" == "vowel", "steelblue", "tomato") -->
+<!-- ggnet2(net, color = "phono") -->
+<!-- ggnet2(net, color = "color") -->
+
+<!-- # Uma segunda opção é passar um vetor de cores através do  -->
+<!-- # argumento palette -->
+<!-- ggnet2(net, color = "phono", palette = c("vowel" = "steelblue", "consonant" = "tomato")) -->
+<!-- # ou gerar o vetor dinamicamente: -->
+<!-- ggnet2(net, color = ifelse(net %v% "phono" == "vowel", "steelblue", "tomato")) -->
+
+<!-- # Terceira opção é usar paletas de cores pré-definidas do RColorBrewer -->
+<!-- # ggnet2 tentará usar as cores da paleta e retornará erro se houver cores insuficientes -->
+<!-- ggnet2(net, color = "phono", palette = "Set2") -->
+
+
